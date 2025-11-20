@@ -1,7 +1,9 @@
 import os
 import logging
+import asyncio
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.error import Conflict, RetryAfter, TimedOut
 from dotenv import load_dotenv
 
 # Загружаем переменные окружения из .env файла
@@ -58,10 +60,39 @@ async def last_price(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     await update.message.reply_text("Последний раз ее купили за: 22000 usd")
 
 
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработчик ошибок"""
+    logger.error(f"Exception while handling an update: {context.error}")
+    
+    # Обработка конфликтов (другой экземпляр бота запущен)
+    if isinstance(context.error, Conflict):
+        logger.error("Конфликт: другой экземпляр бота уже запущен. Остановите другие экземпляры.")
+        # Можно попробовать подождать и перезапустить
+        await asyncio.sleep(5)
+    elif isinstance(context.error, RetryAfter):
+        logger.warning(f"Rate limit exceeded. Retry after {context.error.retry_after} seconds")
+    elif isinstance(context.error, TimedOut):
+        logger.warning("Request timed out, retrying...")
+
+
+async def post_init(application: Application) -> None:
+    """Инициализация после создания приложения"""
+    # Удаляем webhook если он был установлен
+    bot = application.bot
+    try:
+        await bot.delete_webhook(drop_pending_updates=True)
+        logger.info("Webhook удален, pending updates очищены")
+    except Exception as e:
+        logger.warning(f"Ошибка при удалении webhook: {e}")
+
+
 def main() -> None:
     """Запуск бота"""
-    # Создаем приложение
-    application = Application.builder().token(BOT_TOKEN).build()
+    # Создаем приложение с post_init для очистки webhook
+    application = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
+
+    # Регистрируем обработчик ошибок
+    application.add_error_handler(error_handler)
 
     # Регистрируем обработчики команд
     application.add_handler(CommandHandler("start", start))
@@ -71,9 +102,12 @@ def main() -> None:
     application.add_handler(CommandHandler("questions", questions))
     application.add_handler(CommandHandler("lastPrice", last_price))
 
-    # Запускаем бота
-    logger.info("Бот запущен...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    # Запускаем бота с drop_pending_updates=True для очистки очереди
+    logger.info("Запуск бота...")
+    application.run_polling(
+        allowed_updates=Update.ALL_TYPES,
+        drop_pending_updates=True
+    )
 
 
 if __name__ == '__main__':
