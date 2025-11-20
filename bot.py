@@ -30,7 +30,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def contact(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обработчик команды /contact"""
-    await update.message.reply_text("Последний пользующийся телефоном владелец этой машины: В ")
+    await update.message.reply_text("Последний пользующийся телефоном владелец этой машины: Дензел Вашингтон ")
 
 
 async def engine(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -77,13 +77,26 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 
 async def post_init(application: Application) -> None:
     """Инициализация после создания приложения"""
-    # Удаляем webhook если он был установлен
+    # Удаляем webhook если он был установлен (несколько попыток)
     bot = application.bot
-    try:
-        await bot.delete_webhook(drop_pending_updates=True)
-        logger.info("Webhook удален, pending updates очищены")
-    except Exception as e:
-        logger.warning(f"Ошибка при удалении webhook: {e}")
+    max_attempts = 3
+    for attempt in range(max_attempts):
+        try:
+            await bot.delete_webhook(drop_pending_updates=True)
+            logger.info("Webhook удален, pending updates очищены")
+            break
+        except Conflict as e:
+            logger.warning(f"Попытка {attempt + 1}/{max_attempts}: Конфликт при удалении webhook. Ждем 5 секунд...")
+            if attempt < max_attempts - 1:
+                await asyncio.sleep(5)
+            else:
+                logger.error("Не удалось удалить webhook после нескольких попыток. Возможно, другой экземпляр бота все еще запущен.")
+        except Exception as e:
+            logger.warning(f"Ошибка при удалении webhook: {e}")
+    
+    # Дополнительное ожидание перед стартом polling
+    logger.info("Ожидание 3 секунды перед запуском polling...")
+    await asyncio.sleep(3)
 
 
 def main() -> None:
